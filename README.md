@@ -22,8 +22,8 @@ All five files must stay together in the same folder. The app references
 
 ---
 
-App is live at:
-   'https://activecatalyst.github.io/Grind.exe/workout-app.html'
+App is live at:<br></br>
+   `https://activecatalyst.github.io/Grind.exe/workout-app.html`
 
 
 ### Install to iPhone

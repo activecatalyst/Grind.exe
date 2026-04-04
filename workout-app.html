@@ -30,8 +30,8 @@
     --bg:        #0A0F1C;
     --bg2:       #0d1428;
     --bg3:       #1E3A8A;
-    --card:      #F9FAFB;
-    --border:    #d1d5db;
+    --card:      #EAECF0;
+    --border:    #C4C9D4;
     --accent:    #00C2FF;
     --accent2:   #3B82F6;
     --green:     #16a34a;
@@ -175,7 +175,7 @@
     border-radius: var(--r2);
   }
   .ring-svg { flex-shrink: 0; }
-  .ring-bg { fill: none; stroke: #d1d5db; stroke-width: 4; }
+  .ring-bg { fill: none; stroke: #C4C9D4; stroke-width: 4; }
   .ring-fill {
     fill: none; stroke: var(--accent2); stroke-width: 4;
     stroke-linecap: round;
@@ -191,7 +191,7 @@
   /* ─── EXERCISE CARDS ─────────────────────────────────────────────────── */
   .exercises-list { display: flex; flex-direction: column; gap: 14px; padding: 0 20px; }
   .ex-card {
-    background: var(--card);
+    background: #EDF1F7;
     border: 1px solid rgba(0,194,255,0.3);
     border-radius: var(--r2);
     overflow: hidden;
@@ -257,8 +257,8 @@
     text-align: center;
   }
   .set-input {
-    background: #f3f4f6;
-    border: 1px solid #d1d5db;
+    background: #fff;
+    border: 1px solid #C4C9D4;
     border-radius: 8px;
     padding: 8px 10px;
     font-size: 13px; font-family: var(--font-mono);
@@ -272,8 +272,8 @@
   .set-check {
     width: 28px; height: 28px;
     border-radius: 8px;
-    background: #f3f4f6;
-    border: 1px solid #d1d5db;
+    background: #fff;
+    border: 1px solid #C4C9D4;
     display: flex; align-items: center; justify-content: center;
     font-size: 14px;
     transition: all .15s;
@@ -298,7 +298,7 @@
     font-family: var(--font-mono); font-size: 10px;
     min-width: 26px; padding: 4px 5px;
     border-radius: 6px; text-align: center;
-    background: #f3f4f6; border: 1px solid #d1d5db;
+    background: #fff; border: 1px solid #C4C9D4;
     color: #6b7280; cursor: pointer; transition: all .12s;
     flex-shrink: 0;
   }
@@ -315,7 +315,7 @@
     border-bottom: 1px solid transparent;
     transition: border-color .15s, color .15s;
   }
-  .set-notes-input:focus { border-color: #d1d5db; color: var(--text); }
+  .set-notes-input:focus { border-color: #C4C9D4; color: var(--text); }
   .set-notes-input::placeholder { color: #9ca3af; }
   .mark-btn {
     width: 100%;
@@ -355,7 +355,7 @@
   }
   .plan-card:active { transform: scale(0.97); }
   .plan-card.selected { border-color: var(--accent2); }
-  .plan-card.selected .plan-card-face { background: #EFF6FF; }
+  .plan-card.selected .plan-card-face { background: #DBEAFE; }
   .plan-card.expanded { border-color: var(--accent2); box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
   .plan-card-face {
     padding: 14px 12px 12px;
@@ -482,7 +482,7 @@
   .cardio-type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .cardio-type-btn {
     padding: 10px 8px; border-radius: 10px;
-    background: #f3f4f6; border: 1px solid #d1d5db;
+    background: #EDF1F7; border: 1px solid #C4C9D4;
     display: flex; flex-direction: column; align-items: center; gap: 4px;
     cursor: pointer; transition: all .15s;
     font-size: 12px; font-weight: 600; color: var(--text);
@@ -496,7 +496,7 @@
   .cardio-dur-btn {
     font-family: var(--font-mono); font-size: 11px;
     padding: 5px 10px; border-radius: 8px;
-    background: #f3f4f6; border: 1px solid #d1d5db;
+    background: #EDF1F7; border: 1px solid #C4C9D4;
     color: #374151; cursor: pointer; transition: all .15s;
   }
   .cardio-dur-btn.active { background: rgba(59,130,246,0.12); border-color: var(--accent2); color: var(--accent2); }
@@ -1101,48 +1101,85 @@
     position: fixed; bottom: calc(68px + var(--safe-b)); left: 0; right: 0;
     z-index: 150;
     display: none;
-    align-items: center; gap: 12px;
-    padding: 10px 16px;
-    background: rgba(10,15,28,0.97);
-    border-top: 1px solid rgba(59,130,246,0.25);
-    backdrop-filter: blur(20px);
-    animation: slideUp .25s ease;
+    flex-direction: column;
+    gap: 0;
+    background: var(--bg3);
+    border-top: 3px solid var(--accent2);
+    box-shadow: 0 -4px 24px rgba(59,130,246,0.25);
+    animation: slideUp .3s cubic-bezier(.32,.72,0,1);
   }
   .rest-timer-bar.visible { display: flex; }
-  .rest-timer-icon { font-size: 18px; flex-shrink: 0; }
-  .rest-timer-info { flex: 1; }
-  .rest-timer-label { font-size: 10px; font-family: var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* Thick animated progress bar across the very top */
+  .rest-timer-progress-track {
+    height: 5px; width: 100%;
+    background: rgba(255,255,255,0.1);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .rest-timer-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    transition: width .95s linear, background .4s;
+    border-radius: 0 3px 3px 0;
+  }
+  .rest-timer-progress-fill.urgent {
+    background: linear-gradient(90deg, var(--red), #ff8040);
+  }
+
+  /* Main content row */
+  .rest-timer-main {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 16px 10px;
+  }
+  .rest-timer-icon {
+    font-size: 22px; flex-shrink: 0;
+    animation: restPulse .6s ease;
+  }
+  @keyframes restPulse {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.35); }
+    100% { transform: scale(1); }
+  }
+  .rest-timer-info { flex: 1; min-width: 0; }
+  .rest-timer-label {
+    font-size: 9px; font-family: var(--font-mono);
+    color: rgba(229,231,235,0.55);
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin-bottom: 1px;
+  }
   .rest-timer-countdown {
-    font-family: var(--font-head); font-size: 26px; letter-spacing: 1px;
-    line-height: 1;
-    transition: color .3s;
+    font-family: var(--font-head); font-size: 38px;
+    letter-spacing: 2px; line-height: 1;
     color: var(--text-inv);
+    transition: color .3s;
   }
-  .rest-timer-countdown.urgent { color: var(--red); }
-  .rest-timer-track {
-    height: 3px; background: var(--border); border-radius: 2px;
-    margin-top: 4px; overflow: hidden;
+  .rest-timer-countdown.urgent {
+    color: var(--red);
+    animation: urgentPulse 1s ease infinite;
   }
-  .rest-timer-fill {
-    height: 100%; background: var(--accent); border-radius: 2px;
-    transition: width .9s linear, background .3s;
+  @keyframes urgentPulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.6; }
   }
-  .rest-timer-fill.urgent { background: var(--red); }
-  .rest-timer-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .rest-timer-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; align-items: flex-end; }
+  .rest-timer-presets { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
   .rest-timer-btn {
     font-family: var(--font-mono); font-size: 11px;
     padding: 6px 10px; border-radius: 8px;
-    background: rgba(30,58,138,0.4); border: 1px solid rgba(59,130,246,0.3);
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.18);
     color: var(--text-inv); cursor: pointer; transition: all .15s;
     white-space: nowrap;
   }
-  .rest-timer-btn:active { transform: scale(0.95); }
+  .rest-timer-btn:active { transform: scale(0.93); background: rgba(255,255,255,0.2); }
   .rest-timer-btn.skip-btn {
-    background: rgba(0,194,255,0.12);
-    border-color: rgba(0,194,255,0.35);
+    background: rgba(0,194,255,0.15);
+    border-color: rgba(0,194,255,0.4);
     color: var(--accent);
+    font-weight: 600;
+    padding: 7px 14px;
   }
-  .rest-timer-presets { display: flex; gap: 4px; }
 
   /* ─── PROGRESSION PANEL ──────────────────────────────────────────────── */
   .prog-panel {
@@ -1689,23 +1726,27 @@
 
   <!-- REST TIMER BAR -->
   <div class="rest-timer-bar" id="rest-timer-bar">
-    <div class="rest-timer-icon">⏱</div>
-    <div class="rest-timer-info">
-      <div class="rest-timer-label">Rest</div>
-      <div class="rest-timer-countdown" id="rest-countdown">1:30</div>
-      <div class="rest-timer-track">
-        <div class="rest-timer-fill" id="rest-fill" style="width:100%"></div>
-      </div>
+    <!-- Full-width progress bar across the very top -->
+    <div class="rest-timer-progress-track">
+      <div class="rest-timer-progress-fill" id="rest-fill" style="width:100%"></div>
     </div>
-    <div class="rest-timer-actions">
-      <div class="rest-timer-presets">
-        <button class="rest-timer-btn" onclick="setRestTimer(60)">1m</button>
-        <button class="rest-timer-btn" onclick="setRestTimer(90)">90s</button>
-        <button class="rest-timer-btn" onclick="setRestTimer(120)">2m</button>
-        <button class="rest-timer-btn" onclick="setRestTimer(180)">3m</button>
-        <button class="rest-timer-btn" onclick="setRestTimer(300)">5m</button>
+    <!-- Main content -->
+    <div class="rest-timer-main">
+      <div class="rest-timer-icon" id="rest-timer-icon">⏱</div>
+      <div class="rest-timer-info">
+        <div class="rest-timer-label">Rest Period</div>
+        <div class="rest-timer-countdown" id="rest-countdown">1:30</div>
       </div>
-      <button class="rest-timer-btn skip-btn" onclick="skipRestTimer()">Skip</button>
+      <div class="rest-timer-actions">
+        <div class="rest-timer-presets">
+          <button class="rest-timer-btn" onclick="setRestTimer(60)">1m</button>
+          <button class="rest-timer-btn" onclick="setRestTimer(90)">90s</button>
+          <button class="rest-timer-btn" onclick="setRestTimer(120)">2m</button>
+          <button class="rest-timer-btn" onclick="setRestTimer(180)">3m</button>
+          <button class="rest-timer-btn" onclick="setRestTimer(300)">5m</button>
+        </div>
+        <button class="rest-timer-btn skip-btn" onclick="skipRestTimer()">↓ Skip Rest</button>
+      </div>
     </div>
   </div>
 
@@ -3167,6 +3208,7 @@ function updateSet(exId, idx, field, val) {
 }
 
 function setRpe(exId, idx, val, el) {
+  Haptics.light();
   const dateKey = today();
   if (!state.todayLog[dateKey] || !state.todayLog[dateKey][exId]) return;
   const s = state.todayLog[dateKey][exId].sets[idx];
@@ -3195,7 +3237,8 @@ function toggleSet(exId, idx) {
   check.textContent = s.done ? '✓' : '';
   updateProgressFromLog();
   // Start rest timer using last-used duration (falls back to default)
-  if (s.done) startRestTimer(state.lastRestDuration || DEFAULT_REST);
+  if (s.done) { Haptics.medium(); startRestTimer(state.lastRestDuration || DEFAULT_REST); }
+  else { Haptics.light(); }
 }
 
 function toggleExComplete(exId) {
@@ -3205,6 +3248,7 @@ function toggleExComplete(exId) {
   entry.complete = !entry.complete;
   if (entry.complete) {
     entry.sets.forEach(s => s.done = true);
+    Haptics.success();
     showToast('💪 Exercise complete!');
   }
   saveState();
@@ -3554,6 +3598,7 @@ function activateGeneratedPlan() {
 
   document.getElementById('rng-preview').classList.remove('visible');
   generatedPlan = null;
+  Haptics.success();
   renderPlans();
   showToast(`⚡ ${state.generatedPlanData.name} activated!`);
 }
@@ -3960,6 +4005,7 @@ function launchWarmup() {
   saveState();
 
   const todayBtn = document.querySelector('[data-page="today"]');
+  Haptics.medium();
   navTo('today', todayBtn);
   showToast(`${routine.icon} ${routine.name} warm-up added!`);
 }
@@ -4158,6 +4204,7 @@ function deleteSession(si, event) {
       });
     }
   }
+  Haptics.error();
   saveState();
   renderHistory();
   showToast('🗑 Session deleted');
@@ -4217,6 +4264,79 @@ function toggleIosStep(header) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  HAPTICS — navigator.vibrate() works on Android PWA + Chrome
+//  iPhone Safari does not support vibrate() — audio cues cover that path
+// ═══════════════════════════════════════════════════════════════════════════
+const Haptics = {
+  // Short tap — set logged, button press
+  light() {
+    if (navigator.vibrate) navigator.vibrate(18);
+  },
+  // Medium impact — exercise complete, selection confirmed
+  medium() {
+    if (navigator.vibrate) navigator.vibrate(45);
+  },
+  // Success pattern — workout milestone, rest timer done
+  success() {
+    if (navigator.vibrate) navigator.vibrate([30, 50, 80]);
+  },
+  // Warning — urgent (last 5 seconds of rest)
+  warning() {
+    if (navigator.vibrate) navigator.vibrate([15, 30, 15]);
+  },
+  // Error / cancel — reset, delete
+  error() {
+    if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+  },
+};
+// ═══════════════════════════════════════════════════════════════════════════
+let _audioCtx = null;
+
+function getAudioCtx() {
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch(e) {}
+  }
+  return _audioCtx;
+}
+
+function playTone(frequency, duration, type = 'sine', gain = 0.4, delay = 0) {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    const osc = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    osc.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(frequency, ctx.currentTime + delay);
+    gainNode.gain.setValueAtTime(0, ctx.currentTime + delay);
+    gainNode.gain.linearRampToValueAtTime(gain, ctx.currentTime + delay + 0.01);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration);
+    osc.start(ctx.currentTime + delay);
+    osc.stop(ctx.currentTime + delay + duration);
+  } catch(e) {}
+}
+
+function playRestStartSound() {
+  // Ascending two-tone "ding" — bright and attention-grabbing
+  playTone(523, 0.15, 'sine', 0.35);          // C5
+  playTone(784, 0.25, 'sine', 0.45, 0.12);    // G5
+}
+
+function playRestEndSound() {
+  // Descending three-tone "done" — friendly completion chime
+  playTone(784, 0.15, 'sine', 0.4);            // G5
+  playTone(659, 0.15, 'sine', 0.4, 0.15);     // E5
+  playTone(523, 0.35, 'sine', 0.5, 0.30);     // C5
+}
+
+function playUrgentTick() {
+  // Short click each second in the final 5 seconds
+  playTone(880, 0.06, 'square', 0.15);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  REST TIMER
 // ═══════════════════════════════════════════════════════════════════════════
 let restTimerInterval = null;
@@ -4228,22 +4348,49 @@ function startRestTimer(seconds) {
   if (restTimerInterval) clearInterval(restTimerInterval);
   restTimerTotal = seconds || DEFAULT_REST;
   restTimerRemaining = restTimerTotal;
-  // Persist last used duration
   state.lastRestDuration = restTimerTotal;
   saveState();
-  document.getElementById('rest-timer-bar').classList.add('visible');
+
+  // Show bar and trigger icon pulse by re-inserting the class
+  const bar = document.getElementById('rest-timer-bar');
+  const icon = document.getElementById('rest-timer-icon');
+  bar.classList.add('visible');
+  if (icon) {
+    icon.style.animation = 'none';
+    // Force reflow so the animation restarts
+    void icon.offsetWidth;
+    icon.style.animation = '';
+  }
+
+  // Audio start cue — resume AudioContext if suspended (browser autoplay policy)
+  const ctx = getAudioCtx();
+  if (ctx && ctx.state === 'suspended') {
+    ctx.resume().then(() => playRestStartSound());
+  } else {
+    playRestStartSound();
+  }
+
   updateRestTimerDisplay();
+
   restTimerInterval = setInterval(() => {
     restTimerRemaining--;
     updateRestTimerDisplay();
+
+    // Urgent tick in last 5 seconds
+    if (restTimerRemaining > 0 && restTimerRemaining <= 5) {
+      playUrgentTick();
+      Haptics.warning();
+    }
+
     if (restTimerRemaining <= 0) {
       clearInterval(restTimerInterval);
       restTimerInterval = null;
-      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      Haptics.success();
+      playRestEndSound();
       showToast('✅ Rest complete — next set!');
       setTimeout(() => {
-        document.getElementById('rest-timer-bar').classList.remove('visible');
-      }, 1500);
+        bar.classList.remove('visible');
+      }, 2000);
     }
   }, 1000);
 }
@@ -4267,13 +4414,14 @@ function updateRestTimerDisplay() {
 
   const countdown = document.getElementById('rest-countdown');
   const fill = document.getElementById('rest-fill');
+
   if (countdown) {
     countdown.textContent = label;
     countdown.className = 'rest-timer-countdown' + (urgent ? ' urgent' : '');
   }
   if (fill) {
     fill.style.width = pct + '%';
-    fill.className = 'rest-timer-fill' + (urgent ? ' urgent' : '');
+    fill.className = 'rest-timer-progress-fill' + (urgent ? ' urgent' : '');
   }
 }
 
@@ -5035,6 +5183,7 @@ function exportBackup() {
   // Update the label in the modal if it's open
   const lastEl = document.getElementById('bs-last-export');
   if (lastEl) lastEl.textContent = formatLastExport(exportedAt);
+  Haptics.medium();
   showToast('💾 Backup downloaded');
 }
 

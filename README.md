@@ -1,4 +1,4 @@
-# FORGE — Personal Workout App
+# Grind.exe — Personal Workout App
 ### Setup & Deployment Guide
 
 ---
@@ -22,44 +22,9 @@ All five files must stay together in the same folder. The app references
 
 ---
 
-## Option 1 — Open locally (no server, no install)
+App is live at:
+   'https://activecatalyst.github.io/Grind.exe/workout-app.html'
 
-Just double-click `workout-app.html`. It opens in your browser and works
-immediately. Your data persists via localStorage.
-
-**Limitation:** The service worker won't activate on `file://` URLs, so
-offline-first caching won't work. Everything else (plans, logging, history,
-progression) works perfectly.
-
----
-
-## Option 2 — Install as a PWA via GitHub Pages (Free, Recommended)
-
-This gives you a real HTTPS URL, offline support, and the ability to install
-FORGE to your phone's home screen like a native app.
-
-### Step 1 — Create a GitHub repository
-
-1. Go to [github.com](https://github.com) and sign in (or create a free account)
-2. Click **+** → **New repository**
-3. Name it `forge-workout` (or anything you like)
-4. Set it to **Public** (required for free GitHub Pages)
-5. Click **Create repository**
-
-### Step 2 — Upload the files
-
-1. Click **Add file** → **Upload files**
-2. Drag in all five files: `workout-app.html`, `manifest.json`, `sw.js`,
-   and the `icons/` folder with all three PNGs
-3. Click **Commit changes**
-
-### Step 3 — Enable GitHub Pages
-
-1. Go to your repository **Settings** → **Pages** (left sidebar)
-2. Under **Source**, select **Deploy from a branch**
-3. Choose **main** branch → **/ (root)** → click **Save**
-4. Wait 1–2 minutes, then your app is live at:
-   `https://YOUR-USERNAME.github.io/forge-workout/workout-app.html`
 
 ### Step 4 — Install to iPhone
 

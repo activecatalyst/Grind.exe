@@ -2535,15 +2535,22 @@ const EXERCISES = {
 //  STATE
 // ═══════════════════════════════════════════════════════════════════════════
 let state = {
-  activePlan: null,
-  todayLog: {}, // { exerciseId: { sets: [{weight, reps, done}], complete: bool } }
-  history: [],  // [{ date, planId, dayName, exercises: [{id, name, sets:[{w,r}]}] }]
+  activePlan: null,        // legacy key — kept for backward compat on load
+  primaryPlan: null,       // primary program (drives weekly structure)
+  supplementalPlan: null,  // supplemental program (fills gaps / adds finishers)
+  todayLog: {},
+  history: [],
 };
 
 function loadState() {
   try {
     const s = localStorage.getItem('forge_state');
     if (s) state = { ...state, ...JSON.parse(s) };
+    // Migrate legacy activePlan → primaryPlan
+    if (state.activePlan && !state.primaryPlan) {
+      state.primaryPlan = state.activePlan;
+      state.activePlan = null;
+    }
   } catch(e) {}
 }
 
@@ -2586,18 +2593,59 @@ function getPlan(id) {
   return null;
 }
 
-function getTodayWorkout() {
-  if (!state.activePlan) return null;
-  const plan = getPlan(state.activePlan);
+function getTodayWorkout(planId) {
+  const id = planId || state.primaryPlan;
+  if (!id) return null;
+  const plan = getPlan(id);
   if (!plan) return null;
   const dow = getDayOfWeek();
-  // Generated plans store days as a plain object with numeric string keys;
-  // getDayOfWeek() returns a number so coerce to string to be safe.
   if (plan.generated) {
     const dayData = plan.days[String(dow)] ?? plan.days[dow];
     return dayData || { name: 'Rest', exercises: [] };
   }
   return plan.days[dow];
+}
+
+// Count active training days in a plan (used for compatibility check)
+function countActiveDays(planId) {
+  const plan = getPlan(planId);
+  if (!plan) return 0;
+  if (plan.generated) {
+    return Object.values(plan.days).filter(d => d && d.exercises && d.exercises.length > 0).length;
+  }
+  return Object.values(plan.days).filter(d => d && d.exercises && d.exercises.length > 0).length;
+}
+
+// Compatibility check — warn if combined frequency leaves < 2 rest days
+function checkPlanCompatibility(primaryId, suppId) {
+  if (!primaryId || !suppId) return null;
+  const primary = getPlan(primaryId);
+  const supp = getPlan(suppId);
+  if (!primary || !supp) return null;
+  const dow = getDayOfWeek();
+
+  // Find overlapping training days
+  const conflicts = [];
+  const warnings = [];
+  for (let d = 0; d < 7; d++) {
+    const pDay = primary.generated
+      ? (primary.days[String(d)] ?? primary.days[d])
+      : primary.days[d];
+    const sDay = supp.generated
+      ? (supp.days[String(d)] ?? supp.days[d])
+      : supp.days[d];
+    const pHas = pDay && pDay.exercises && pDay.exercises.length > 0;
+    const sHas = sDay && sDay.exercises && sDay.exercises.length > 0;
+    if (pHas && sHas) conflicts.push(DAYS[d]);
+  }
+  const totalActive = countActiveDays(primaryId) + countActiveDays(suppId);
+  if (totalActive > 6) {
+    warnings.push(`${totalActive} training days combined — fewer than 1 rest day. High injury risk.`);
+  }
+  if (conflicts.length > 3) {
+    warnings.push(`${conflicts.length} days overlap (${conflicts.slice(0,3).join(', ')}...). Supplemental adds as finisher on those days.`);
+  }
+  return warnings.length ? warnings : null;
 }
 
 function showToast(msg) {
@@ -2617,7 +2665,7 @@ const DELOAD_WEEKS = 6;           // suggest deload after this many consecutive 
 function checkDeloadNudge() {
   const nudge = document.getElementById('deload-nudge');
   if (!nudge) return;
-  if (!state.activePlan || !state.history || state.history.length === 0) {
+  if (!state.primaryPlan || !state.history || state.history.length === 0) {
     nudge.style.display = 'none'; return;
   }
   // Snoozed?
@@ -2632,12 +2680,12 @@ function checkDeloadNudge() {
     const d = new Date(h.date);
     const jan1 = new Date(d.getFullYear(), 0, 1);
     const week = Math.ceil(((d - jan1) / 86400000 + jan1.getDay() + 1) / 7);
-    return \`\${d.getFullYear()}-W\${week}\`;
+    return `${d.getFullYear()}-W${week}`;
   }));
   const weekCount = weeks.size;
   if (weekCount >= DELOAD_WEEKS) {
     const sub = document.getElementById('deload-nudge-sub');
-    if (sub) sub.textContent = \`\${weekCount} weeks of consistent training — reduce volume by 40% this week to recover\`;
+    if (sub) sub.textContent = `${weekCount} weeks of consistent training — reduce volume by 40% this week to recover`;
     nudge.style.display = 'block';
   } else {
     nudge.style.display = 'none';
@@ -2783,8 +2831,8 @@ function renderToday() {
     checkDeloadNudge();
     return;
   }
-  const workout = getTodayWorkout();
-  const plan = state.activePlan ? getPlan(state.activePlan) : null;
+  const workout = getTodayWorkout(state.primaryPlan);
+  const plan = state.primaryPlan ? getPlan(state.primaryPlan) : null;
 
   document.getElementById('hero-day').textContent = `${DAYS[dow]} · ${MONTHS[d.getMonth()]} ${d.getDate()}`;
 
@@ -2800,10 +2848,15 @@ function renderToday() {
   document.getElementById('no-plan-msg').style.display = 'none';
   document.getElementById('progress-wrap').style.display = 'flex';
   document.getElementById('hero-title').textContent = workout.name;
+  const suppPlan = state.supplementalPlan ? getPlan(state.supplementalPlan) : null;
+  const suppWorkout = suppPlan ? getTodayWorkout(state.supplementalPlan) : null;
+  const suppExercises = suppWorkout && suppWorkout.exercises && suppWorkout.exercises.length > 0 ? suppWorkout.exercises : [];
+  const totalCount = (workout.exercises.length) + suppExercises.filter(id => !workout.exercises.includes(id)).length;
+
   document.getElementById('hero-meta').innerHTML =
     `<div class="hero-chip">📋 ${plan.name}</div>` +
     (workout.exercises.length
-      ? `<div class="hero-chip">🏋️ ${workout.exercises.length} exercises</div>`
+      ? `<div class="hero-chip">🏋️ ${totalCount} exercises${suppExercises.length ? ' (combined)' : ''}</div>`
       : `<div class="hero-chip">😴 Rest Day</div>`);
 
   if (!workout.exercises.length) {
@@ -2952,11 +3005,55 @@ function renderToday() {
     list.appendChild(buildExCard(exId, ex, log[exId], volumeOverride));
   });
 
-  // Auto-open first incomplete exercise so user sees content immediately
+  // Auto-open first incomplete exercise
   const firstIncomplete = workout.exercises.find(id => log[id] && !log[id].complete);
   if (firstIncomplete) {
     const body = document.getElementById('exbody-' + firstIncomplete);
     if (body) body.classList.add('open');
+  }
+
+  // ── Supplemental finisher block ────────────────────────────────────────
+  const uniqueSuppExercises = suppExercises.filter(id => !workout.exercises.includes(id));
+  if (uniqueSuppExercises.length > 0) {
+    // Divider
+    const divider = document.createElement('div');
+    divider.style.cssText = 'margin:16px 20px 8px;display:flex;align-items:center;gap:10px;';
+    divider.innerHTML = `
+      <div style="flex:1;height:1px;background:var(--border);"></div>
+      <div style="font-family:var(--font-mono);font-size:9px;color:var(--accent2);
+        text-transform:uppercase;letter-spacing:1.5px;white-space:nowrap;">
+        + ${suppPlan.name} Finisher
+      </div>
+      <div style="flex:1;height:1px;background:var(--border);"></div>`;
+    list.appendChild(divider);
+
+    // Init log entries for supplemental exercises
+    uniqueSuppExercises.forEach(exId => {
+      const ex = EXERCISES[exId];
+      if (!ex || log[exId]) return;
+      log[exId] = {
+        sets: Array.from({length: ex.sets}, () => ({ weight: ex.weight, reps: ex.reps, done: false })),
+        complete: false,
+        isSupplemental: true
+      };
+    });
+    saveState();
+
+    // Build supplemental exercise cards
+    uniqueSuppExercises.forEach(exId => {
+      const ex = EXERCISES[exId];
+      if (!ex) return;
+      const card = buildExCard(exId, ex, log[exId]);
+      // Tint card slightly to distinguish from primary
+      card.style.borderColor = 'rgba(59,130,246,0.3)';
+      list.appendChild(card);
+    });
+  } else if (suppPlan && suppExercises.length === 0) {
+    // Supplemental has a rest day here — note it
+    const restNote = document.createElement('div');
+    restNote.style.cssText = 'margin:12px 20px 0;padding:8px 14px;background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.15);border-radius:10px;font-family:var(--font-mono);font-size:10px;color:var(--muted);';
+    restNote.textContent = `${suppPlan.name}: rest day`;
+    list.appendChild(restNote);
   }
 
   updateProgressFromLog();
@@ -3158,7 +3255,7 @@ function updateProgressFromLog() {
     return;
   }
 
-  const workout = getTodayWorkout();
+  const workout = getTodayWorkout(state.primaryPlan);
   if (!workout || !workout.exercises.length) { updateRing(0, 0); return; }
   const total = workout.exercises.length;
   const done = workout.exercises.filter(id => log[id] && log[id].complete).length;
@@ -3449,12 +3546,12 @@ function activateGeneratedPlan() {
   // (dayMap already uses numeric keys 0-6, matching getDayOfWeek())
   // We add it to PLANS array temporarily so getPlan() works,
   // but we key it by id and store all data needed in state.
-  state.activePlan = generatedPlan.id;
-  state.generatedPlanData = generatedPlan; // persist full generated plan
+  state.primaryPlan = generatedPlan.id;
+  state.activePlan = null;
+  state.generatedPlanData = generatedPlan;
   state.todayLog = {};
   saveState();
 
-  // Hide preview, show toast, go to today
   document.getElementById('rng-preview').classList.remove('visible');
   generatedPlan = null;
   renderPlans();
@@ -3472,10 +3569,15 @@ function renderPlans() {
   const dow = getDayOfWeek();
 
   // ── Helper: build a plan card element ─────────────────────────────────
-  function makePlanCard({ id, badge, badgeBg, name, desc, tags, color, todayLabel, isTodayRest, isSelected, isExpanded, isGenerated, volumeNote }) {
+  function makePlanCard({ id, badge, badgeBg, name, desc, tags, color, todayLabel, isTodayRest, isPrimary, isSupplemental, isExpanded, isGenerated, volumeNote }) {
+    const isAnyActive = isPrimary || isSupplemental;
     const card = document.createElement('div');
-    card.className = 'plan-card' + (isSelected ? ' selected' : '') + (isExpanded ? ' expanded' : '');
+    card.className = 'plan-card' + (isAnyActive ? ' selected' : '') + (isExpanded ? ' expanded' : '');
     card.id = 'plancard-' + id;
+    let statusBadge = '';
+    if (isPrimary)      statusBadge = '<div class="plan-selected-badge">✓ Primary</div>';
+    else if (isSupplemental) statusBadge = '<div class="plan-selected-badge" style="background:rgba(59,130,246,0.12);border-color:var(--accent2);color:var(--accent2);">+ Supplemental</div>';
+    else                statusBadge = '<div></div>';
     card.innerHTML = `
       <div class="plan-card-face" onclick="togglePlan('${id}')">
         <div style="display:flex;align-items:center;gap:8px;">
@@ -3491,7 +3593,7 @@ function renderPlans() {
           <div class="plan-today-label">TODAY: ${todayLabel}</div>
         </div>
         <div class="plan-face-footer">
-          ${isSelected ? '<div class="plan-selected-badge">✓ Active</div>' : '<div></div>'}
+          ${statusBadge}
           <div class="plan-chevron">▼</div>
         </div>
       </div>`;
@@ -3499,7 +3601,7 @@ function renderPlans() {
   }
 
   // ── Helper: build the dropdown element (always spans full width) ────────
-  function makeDropdown({ id, schedule, isSelected, isGenerated, volumeNote }) {
+  function makeDropdown({ id, schedule, isPrimary, isSupplemental, isGenerated, volumeNote }) {
     const dropdown = document.createElement('div');
     dropdown.className = 'plan-dropdown open';
     const schedRows = schedule.map(s => `
@@ -3517,13 +3619,23 @@ function renderPlans() {
     let actions = '';
     if (isGenerated) {
       actions = `<button class="deactivate-plan-btn" onclick="clearGeneratedPlan()">✕ Deactivate</button>`;
-    } else if (isSelected) {
+    } else if (isPrimary) {
       actions = `
         <button class="select-plan-btn" onclick="navTo('today',document.querySelector('[data-page=today]'))"
-          style="background:var(--bg3);border:1px solid var(--border);color:var(--text);">→ Go to Today</button>
-        <button class="deactivate-plan-btn" onclick="deactivatePlan()">✕</button>`;
+          style="background:var(--bg3);border:1px solid var(--border);color:var(--text);flex:0 0 auto;">→ Today</button>
+        <button class="select-plan-btn" onclick="setSupplementalPlan('${id}')"
+          style="flex:1;">+ Set as Supplemental</button>
+        <button class="deactivate-plan-btn" onclick="deactivatePlan('primary')">✕</button>`;
+    } else if (isSupplemental) {
+      actions = `
+        <button class="select-plan-btn" onclick="setPrimaryPlan('${id}')"
+          style="flex:1;">⬆ Make Primary</button>
+        <button class="deactivate-plan-btn" onclick="deactivatePlan('supplemental')">✕</button>`;
     } else {
-      actions = `<button class="select-plan-btn" onclick="selectPlan('${id}')">⚡ Activate This Plan</button>`;
+      actions = `
+        <button class="select-plan-btn" onclick="setPrimaryPlan('${id}')" style="flex:1;">⚡ Set as Primary</button>
+        <button class="select-plan-btn" onclick="setSupplementalPlan('${id}')"
+          style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);color:var(--accent2);flex:1;">+ Add as Supplemental</button>`;
     }
 
     dropdown.innerHTML = `
@@ -3533,7 +3645,7 @@ function renderPlans() {
   }
 
   // ── Active generated plan card (fits in 2×1 grid as one cell) ──────────
-  if (state.generatedPlanData && state.activePlan === state.generatedPlanData.id) {
+  if (state.generatedPlanData && (state.primaryPlan === state.generatedPlanData.id || state.activePlan === state.generatedPlanData.id)) {
     const gp = state.generatedPlanData;
     const isExpanded = expandedPlan === 'generated';
     const gpTodayData = gp.days[dow] || gp.days[String(dow)];
@@ -3550,7 +3662,8 @@ function renderPlans() {
       color: 'var(--yellow)',
       todayLabel: gpTodayLabel,
       isTodayRest: gpTodayLabel === 'Rest',
-      isSelected: true,
+      isPrimary: true,
+      isSupplemental: false,
       isExpanded,
       isGenerated: true,
     });
@@ -3560,21 +3673,22 @@ function renderPlans() {
       container.appendChild(makeDropdown({
         id: 'generated',
         schedule: gp.schedule,
-        isSelected: true,
+        isPrimary: true,
+        isSupplemental: false,
         isGenerated: true,
         volumeNote: gp.volumeNote,
       }));
     }
   }
 
-  // ── All regular plans in 2×1 grid ──────────────────────────────────────
+  // ── Regular plans — 2×1 grid; Pure Cardio + Drive Phase full-width ───────
   PLANS.forEach(plan => {
-    const isSelected = state.activePlan === plan.id;
+    const isPrimary = state.primaryPlan === plan.id;
+    const isSupp = state.supplementalPlan === plan.id;
     const isExpanded = expandedPlan === plan.id;
     const todaySession = plan.days[dow];
     const todayLabel = todaySession && todaySession.exercises && todaySession.exercises.length > 0
       ? todaySession.name : 'Rest';
-    const isFullWidth = plan.id === 'cardio_only';
 
     const card = makePlanCard({
       id: plan.id,
@@ -3586,19 +3700,19 @@ function renderPlans() {
       color: plan.color,
       todayLabel,
       isTodayRest: todayLabel === 'Rest',
-      isSelected,
+      isPrimary,
+      isSupplemental: isSupp,
       isExpanded,
       isGenerated: false,
     });
-    // Pure Cardio spans both columns
-    if (isFullWidth) card.style.gridColumn = '1 / -1';
     container.appendChild(card);
 
     if (isExpanded) {
       container.appendChild(makeDropdown({
         id: plan.id,
         schedule: plan.schedule,
-        isSelected,
+        isPrimary,
+        isSupplemental: isSupp,
         isGenerated: false,
         volumeNote: null,
       }));
@@ -3608,16 +3722,67 @@ function renderPlans() {
   renderCustomStrip();
 }
 
-function deactivatePlan() {
-  state.activePlan = null;
+function setPrimaryPlan(planId) {
+  // If this was the supplemental, clear that role first
+  if (state.supplementalPlan === planId) state.supplementalPlan = null;
+  state.primaryPlan = planId;
   state.todayLog = {};
   saveState();
   expandedPlan = null;
+  // Compatibility check
+  const warnings = checkPlanCompatibility(state.primaryPlan, state.supplementalPlan);
   renderPlans();
-  showToast('Plan deactivated');
+  if (warnings) {
+    showToast('⚠️ ' + warnings[0]);
+  } else {
+    const plan = getPlan(planId);
+    showToast('⚡ ' + (plan ? plan.name : '') + ' set as primary!');
+  }
+}
+
+function setSupplementalPlan(planId) {
+  if (!state.primaryPlan) {
+    showToast('Set a primary plan first');
+    return;
+  }
+  if (state.primaryPlan === planId) {
+    showToast('Already your primary — pick a different plan as supplemental');
+    return;
+  }
+  state.supplementalPlan = planId;
+  saveState();
+  expandedPlan = null;
+  const warnings = checkPlanCompatibility(state.primaryPlan, state.supplementalPlan);
+  renderPlans();
+  if (warnings) {
+    showToast('⚠️ ' + warnings[0]);
+  } else {
+    const plan = getPlan(planId);
+    showToast('+ ' + (plan ? plan.name : '') + ' added as supplemental!');
+  }
+}
+
+function deactivatePlan(role) {
+  if (role === 'supplemental') {
+    state.supplementalPlan = null;
+    saveState();
+    expandedPlan = null;
+    renderPlans();
+    showToast('Supplemental plan removed');
+  } else {
+    // Remove primary (and supplemental with it)
+    state.primaryPlan = null;
+    state.supplementalPlan = null;
+    state.todayLog = {};
+    saveState();
+    expandedPlan = null;
+    renderPlans();
+    showToast('Plans deactivated');
+  }
 }
 
 function clearGeneratedPlan() {
+  state.primaryPlan = null;
   state.activePlan = null;
   state.generatedPlanData = null;
   saveState();
@@ -3632,12 +3797,7 @@ function togglePlan(planId) {
 }
 
 function selectPlan(planId) {
-  state.activePlan = planId;
-  state.todayLog = {};
-  saveState();
-  expandedPlan = null;
-  renderPlans();
-  showToast('✅ Plan activated!');
+  setPrimaryPlan(planId);
 }
 
 function toggleWarmupCard(wuId) {
@@ -4448,11 +4608,19 @@ function autoSaveSession() {
   }
 
   // ── Standard plan save path ────────────────────────────────────────────
-  const workout = getTodayWorkout();
+  const workout = getTodayWorkout(state.primaryPlan);
   if (!workout || !workout.exercises.length) return;
   const log = state.todayLog[dateKey] || {};
-  const plan = getPlan(state.activePlan);
-  const completedExs = workout.exercises
+  const plan = getPlan(state.primaryPlan);
+  // Include both primary and supplemental completed exercises
+  const allExIds = [...workout.exercises];
+  if (state.supplementalPlan) {
+    const suppW = getTodayWorkout(state.supplementalPlan);
+    if (suppW && suppW.exercises) {
+      suppW.exercises.filter(id => !allExIds.includes(id)).forEach(id => allExIds.push(id));
+    }
+  }
+  const completedExs = allExIds
     .filter(id => log[id] && log[id].complete)
     .map(id => ({
       id,
@@ -4464,9 +4632,10 @@ function autoSaveSession() {
     }));
   if (completedExs.length === 0) return;
 
+  const suppPlanForSave = state.supplementalPlan ? getPlan(state.supplementalPlan) : null;
   const sessionData = {
     date: dateKey,
-    planName: plan ? plan.name : '—',
+    planName: plan ? plan.name + (suppPlanForSave ? ' + ' + suppPlanForSave.name : '') : '—',
     dayName: workout.name,
     exercises: completedExs,
   };
@@ -4546,7 +4715,7 @@ function getRepRange(exId) {
   const ex = EXERCISES[exId];
   if (!ex) return { low: 8, high: 12 };
   // Check if active plan is generated and has volume info for today
-  if (state.generatedPlanData && state.activePlan === state.generatedPlanData.id) {
+  if (state.generatedPlanData && (state.primaryPlan === state.generatedPlanData.id || state.activePlan === state.generatedPlanData.id)) {
     const dow = getDayOfWeek();
     const dayData = state.generatedPlanData.days[dow] || state.generatedPlanData.days[String(dow)];
     if (dayData && dayData.repsLow) return { low: dayData.repsLow, high: dayData.repsHigh };

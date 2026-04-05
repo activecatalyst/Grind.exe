@@ -1438,6 +1438,17 @@
 
     <div class="exercises-list" id="exercises-list"></div>
 
+    <!-- Manual rest day override — shown when a workout is active -->
+    <div id="rest-override-btn-wrap" style="display:none; padding: 4px 20px 0;">
+      <button onclick="toggleRestOverride()"
+        id="rest-override-btn"
+        style="width:100%;padding:10px;border-radius:10px;font-size:12px;font-weight:500;
+          background:transparent;border:1px solid var(--border);color:var(--muted);
+          letter-spacing:0.3px;transition:all .2s;">
+        😴 Take a Rest Day Instead
+      </button>
+    </div>
+
     <!-- Deload nudge banner — shown after 6 consecutive weeks -->
     <div id="deload-nudge" style="display:none;margin:0 20px 4px;">
       <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;
@@ -2618,6 +2629,7 @@ let state = {
   supplementalPlan: null,  // supplemental program (fills gaps / adds finishers)
   todayLog: {},
   history: [],
+  restDayOverride: null,   // date string — user chose to rest instead of train today
 };
 
 function loadState() {
@@ -2846,6 +2858,75 @@ function navTo(pageId, btn) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  REST DAY OVERRIDE
+// ═══════════════════════════════════════════════════════════════════════════
+function buildRestDayHTML(showResumeBtn) {
+  return `
+    <div style="text-align:center;padding:32px 20px 16px;color:var(--muted)">
+      <div style="font-size:48px;margin-bottom:12px">😴</div>
+      <div style="font-family:var(--font-head);font-size:24px;letter-spacing:1px;color:var(--text);margin-bottom:8px">Rest Day</div>
+      <div style="font-size:13px;margin-bottom:${showResumeBtn ? '16px' : '20px'};">Recovery is where the gains happen.</div>
+      ${showResumeBtn ? `
+        <button onclick="cancelRestOverride()"
+          style="padding:9px 20px;border-radius:10px;font-size:12px;font-weight:600;
+            background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);
+            color:var(--accent2);margin-bottom:20px;">
+          ↩ Resume Today's Workout
+        </button>` : ''}
+    </div>
+    <div style="margin:0 20px 20px;display:flex;flex-direction:column;gap:8px;">
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;">
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--accent2);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Recovery Checklist</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;gap:10px;align-items:flex-start;">
+            <span style="font-size:16px;">💤</span>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:1px;">Sleep 7–9 hours</div>
+              <div style="font-size:11px;color:var(--muted);">Growth hormone peaks during deep sleep. This is when your muscles actually repair and grow.</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:flex-start;">
+            <span style="font-size:16px;">🥩</span>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:1px;">Protein: 0.7–1g per lb bodyweight</div>
+              <div style="font-size:11px;color:var(--muted);">Spread across 3–4 meals. Muscle protein synthesis stays elevated for ~48 hrs after training.</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:flex-start;">
+            <span style="font-size:16px;">💧</span>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:1px;">Hydrate: ~0.5 oz per lb bodyweight</div>
+              <div style="font-size:11px;color:var(--muted);">Dehydration by even 2% impairs recovery and next-session performance. Aim for pale yellow urine.</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:flex-start;">
+            <span style="font-size:16px;">🧘</span>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:1px;">Light movement is fine — or better</div>
+              <div style="font-size:11px;color:var(--muted);">Walking, swimming, or a mobility session increases blood flow to sore muscles and speeds recovery.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function toggleRestOverride() {
+  const dateKey = today();
+  state.restDayOverride = dateKey;
+  saveState();
+  renderToday();
+  showToast('😴 Rest day — recover well');
+}
+
+function cancelRestOverride() {
+  state.restDayOverride = null;
+  saveState();
+  renderToday();
+  showToast('💪 Back to the workout');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  TODAY PAGE
 // ═══════════════════════════════════════════════════════════════════════════
 function renderToday() {
@@ -2913,6 +2994,23 @@ function renderToday() {
     checkDeloadNudge();
     return;
   }
+
+  // ── Manual rest day override ───────────────────────────────────────────
+  const isRestOverride = state.restDayOverride === dateKey;
+  if (isRestOverride) {
+    document.getElementById('hero-day').textContent = `${DAYS[dow]} · ${MONTHS[d.getMonth()]} ${d.getDate()}`;
+    document.getElementById('hero-title').textContent = 'Rest Day';
+    document.getElementById('hero-meta').innerHTML = '<div class="hero-chip">😴 Recovery Mode</div>';
+    document.getElementById('no-plan-msg').style.display = 'none';
+    document.getElementById('progress-wrap').style.display = 'none';
+    document.getElementById('exercises-list').innerHTML = buildRestDayHTML(true);
+    document.getElementById('rest-override-btn-wrap').style.display = 'none';
+    updateRing(0, 0);
+    checkBackupNudge();
+    checkDeloadNudge();
+    return;
+  }
+
   const workout = getTodayWorkout(state.primaryPlan);
   const plan = state.primaryPlan ? getPlan(state.primaryPlan) : null;
 
@@ -2942,47 +3040,8 @@ function renderToday() {
       : `<div class="hero-chip">😴 Rest Day</div>`);
 
   if (!workout.exercises.length) {
-    document.getElementById('exercises-list').innerHTML =
-      `<div style="text-align:center;padding:32px 20px 16px;color:var(--muted)">
-        <div style="font-size:48px;margin-bottom:12px">😴</div>
-        <div style="font-family:var(--font-head);font-size:24px;letter-spacing:1px;color:var(--text);margin-bottom:8px">Rest Day</div>
-        <div style="font-size:13px;margin-bottom:20px;">Recovery is where the gains happen.</div>
-      </div>
-      <div style="margin:0 20px 20px;display:flex;flex-direction:column;gap:8px;">
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;">
-          <div style="font-family:var(--font-mono);font-size:9px;color:var(--accent2);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Recovery Checklist</div>
-          <div style="display:flex;flex-direction:column;gap:8px;">
-            <div style="display:flex;gap:10px;align-items:flex-start;">
-              <span style="font-size:16px;">💤</span>
-              <div>
-                <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:1px;">Sleep 7–9 hours</div>
-                <div style="font-size:11px;color:var(--muted);">Growth hormone peaks during deep sleep. This is when your muscles actually repair and grow.</div>
-              </div>
-            </div>
-            <div style="display:flex;gap:10px;align-items:flex-start;">
-              <span style="font-size:16px;">🥩</span>
-              <div>
-                <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:1px;">Protein: 0.7–1g per lb bodyweight</div>
-                <div style="font-size:11px;color:var(--muted);">Spread across 3–4 meals. Muscle protein synthesis stays elevated for ~48 hrs after training.</div>
-              </div>
-            </div>
-            <div style="display:flex;gap:10px;align-items:flex-start;">
-              <span style="font-size:16px;">💧</span>
-              <div>
-                <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:1px;">Hydrate: ~0.5 oz per lb bodyweight</div>
-                <div style="font-size:11px;color:var(--muted);">Dehydration by even 2% impairs recovery and next-session performance. Aim for pale yellow urine.</div>
-              </div>
-            </div>
-            <div style="display:flex;gap:10px;align-items:flex-start;">
-              <span style="font-size:16px;">🧘</span>
-              <div>
-                <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:1px;">Light movement is fine — or better</div>
-                <div style="font-size:11px;color:var(--muted);">Walking, swimming, or a mobility session increases blood flow to sore muscles and speeds recovery.</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>`;
+    document.getElementById('exercises-list').innerHTML = buildRestDayHTML(false);
+    document.getElementById('rest-override-btn-wrap').style.display = 'none';
     updateRing(0, 0);
     return;
   }
@@ -3137,6 +3196,10 @@ function renderToday() {
     restNote.textContent = `${suppPlan.name}: rest day`;
     list.appendChild(restNote);
   }
+
+  // Show "Take a Rest Day" button when there are exercises to do
+  const restBtnWrap = document.getElementById('rest-override-btn-wrap');
+  if (restBtnWrap) restBtnWrap.style.display = workout.exercises.length ? 'block' : 'none';
 
   updateProgressFromLog();
   checkBackupNudge();

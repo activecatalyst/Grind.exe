@@ -691,7 +691,7 @@
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
-  .ios-step-title { font-size: 15px; font-weight: 600; flex: 1; }
+  .ios-step-title { font-size: 15px; font-weight: 600; flex: 1; color: var(--text); }
   .ios-step-chevron { color: var(--muted); transition: transform .2s; }
   .ios-step-chevron.open { transform: rotate(90deg); }
   .ios-step-body {
@@ -3037,7 +3037,13 @@ function renderToday() {
     `<div class="hero-chip">📋 ${plan.name}</div>` +
     (workout.exercises.length
       ? `<div class="hero-chip">🏋️ ${totalCount} exercises${suppExercises.length ? ' (combined)' : ''}</div>`
-      : `<div class="hero-chip">😴 Rest Day</div>`);
+      : `<div class="hero-chip">😴 Rest Day</div>`) +
+    `<button onclick="confirmResetPlan()" style="
+      background:transparent;border:none;padding:0;
+      font-size:11px;color:rgba(229,231,235,0.45);
+      text-decoration:underline;cursor:pointer;
+      font-family:var(--font-mono);letter-spacing:0.3px;
+      margin-left:2px;align-self:center;">change plan</button>`;
 
   if (!workout.exercises.length) {
     document.getElementById('exercises-list').innerHTML = buildRestDayHTML(false);
@@ -3912,6 +3918,20 @@ function setSupplementalPlan(planId) {
   } else {
     const plan = getPlan(planId);
     showToast('+ ' + (plan ? plan.name : '') + ' added as supplemental!');
+  }
+}
+
+function confirmResetPlan() {
+  if (confirm('Clear your current plan and choose a new one?')) {
+    state.primaryPlan = null;
+    state.supplementalPlan = null;
+    state.generatedPlanData = null;
+    state.todayLog = {};
+    state.restDayOverride = null;
+    saveState();
+    expandedPlan = null;
+    navTo('plans', document.querySelector('[data-page=plans]'));
+    showToast('Plan cleared — pick a new one below');
   }
 }
 

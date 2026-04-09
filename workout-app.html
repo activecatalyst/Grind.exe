@@ -269,7 +269,43 @@
     border: 1px solid rgba(59,130,246,0.25);
     color: var(--accent2);
   }
-  .variant-row {
+  .swap-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: var(--font-mono); font-size: 11px;
+    padding: 5px 10px; border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: var(--muted); cursor: pointer;
+    transition: all .15s; flex-shrink: 0;
+    letter-spacing: 0.3px;
+  }
+  .swap-btn:active { transform: scale(0.93); background: rgba(255,255,255,0.12); }
+  .swap-btn.swapped {
+    background: rgba(255,204,0,0.1);
+    border-color: rgba(255,204,0,0.3);
+    color: var(--yellow);
+  }
+  .swap-option {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px; border-radius: 12px;
+    background: var(--card); border: 1px solid rgba(0,194,255,0.2);
+    cursor: pointer; transition: all .15s;
+    margin-bottom: 8px;
+  }
+  .swap-option:active { transform: scale(0.98); border-color: var(--accent); }
+  .swap-option-icon {
+    width: 38px; height: 38px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .swap-option-info { flex: 1; min-width: 0; }
+  .swap-option-name { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+  .swap-option-meta { font-size: 11px; font-family: var(--font-mono); color: var(--muted); }
+  .swap-section-label {
+    font-family: var(--font-mono); font-size: 9px;
+    color: var(--accent); text-transform: uppercase;
+    letter-spacing: 1px; margin: 12px 0 6px;
+  }
     display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
     margin-bottom: 2px;
   }
@@ -1861,6 +1897,18 @@
 
 </div>
 
+<!-- ─── SWAP EXERCISE MODAL ───────────────────────────────────────────────── -->
+<div class="modal-overlay" id="swap-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title" id="swap-modal-title">Swap Exercise</div>
+      <button class="modal-close" onclick="closeSwapModal()">✕</button>
+    </div>
+    <div class="modal-body" id="swap-modal-body" style="padding-bottom:24px;"></div>
+  </div>
+</div>
+
 <!-- ─── TRAVEL MODE MODAL ─────────────────────────────────────────────────── -->
 <div class="modal-overlay" id="travel-modal">
   <div class="modal">
@@ -2877,6 +2925,7 @@ let state = {
   restDayOverride: null,   // date string — user chose to rest instead of train today
   equipmentVariants: {},   // exId → variant key ('barbell','dumbbell','machine', etc.)
   travelMode: null,        // null | { returnDate: 'YYYY-MM-DD' | null }
+  todaySwaps: {},          // dateKey → { exId: swapExId } — today-only exercise swaps
 };
 
 function loadState() {
@@ -3425,9 +3474,10 @@ function renderToday() {
     list.appendChild(divider);
   }
   workout.exercises.forEach(exId => {
-    const ex = EXERCISES[exId];
+    const resolvedId = getSwappedExId(exId);
+    const ex = EXERCISES[resolvedId];
     if (!ex) return;
-    list.appendChild(buildExCard(exId, ex, log[exId], volumeOverride));
+    list.appendChild(buildExCard(exId, ex, log[exId] || { sets: Array.from({length: ex.sets}, () => ({ weight: ex.weight, reps: ex.reps, done: false })), complete: false }, volumeOverride, resolvedId !== exId));
   });
 
   // Auto-open first incomplete exercise
@@ -3492,7 +3542,7 @@ function renderToday() {
   updateTravelUI();
 }
 
-function buildExCard(exId, ex, logEntry, volumeOverride) {
+function buildExCard(exId, ex, logEntry, volumeOverride, isSwapped) {
   // Apply equipment variant if one is active — overrides name, weight, cue
   const effectiveEx = getEffectiveExercise(exId) || ex;
 
@@ -3582,10 +3632,16 @@ function buildExCard(exId, ex, logEntry, volumeOverride) {
           </div>
         `).join('')}
       </div>
-      <button class="mark-btn ${logEntry.complete ? 'done-btn' : ''}" id="markbtn-${exId}"
-        onclick="toggleExComplete('${exId}')">
-        ${logEntry.complete ? '✅ Completed — Tap to Undo' : '✓ Mark Exercise Complete'}
-      </button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="mark-btn ${logEntry.complete ? 'done-btn' : ''}" id="markbtn-${exId}"
+          onclick="toggleExComplete('${exId}')" style="flex:1;">
+          ${logEntry.complete ? '✅ Completed — Tap to Undo' : '✓ Mark Exercise Complete'}
+        </button>
+        ${EXERCISE_SWAPS[exId] || isSwapped ? `<button class="swap-btn ${isSwapped ? 'swapped' : ''}"
+          onclick="openSwapModal('${exId}')" title="Swap this exercise">
+          ↔${isSwapped ? ' Swapped' : ''}
+        </button>` : ''}
+      </div>
     </div>
   `;
   return card;
@@ -4886,22 +4942,23 @@ function playUrgentTick() {
 // ═══════════════════════════════════════════════════════════════════════════
 let restTimerInterval = null;
 let restTimerTotal = 90;
-let restTimerRemaining = 90;
+let restTimerEndTime = null;   // absolute timestamp (ms) when timer expires
 const DEFAULT_REST = 90;
-let wakeLockSentinel = null; // Screen Wake Lock — keeps screen on during rest
+let wakeLockSentinel = null;
+
+// Derived remaining — always calculated from wall clock, never decremented
+function getRestRemaining() {
+  if (!restTimerEndTime) return 0;
+  return Math.max(0, Math.ceil((restTimerEndTime - Date.now()) / 1000));
+}
 
 // ── Wake Lock ─────────────────────────────────────────────────────────────
 async function acquireWakeLock() {
   if (!('wakeLock' in navigator)) return;
   try {
     wakeLockSentinel = await navigator.wakeLock.request('screen');
-    // Re-acquire if released by the system (e.g. tab switch)
-    wakeLockSentinel.addEventListener('release', () => {
-      wakeLockSentinel = null;
-    });
-  } catch (e) {
-    // Silently fail — not supported or denied
-  }
+    wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
+  } catch (e) {}
 }
 
 function releaseWakeLock() {
@@ -4910,6 +4967,28 @@ function releaseWakeLock() {
     wakeLockSentinel = null;
   }
 }
+
+// ── Page visibility — re-sync display when app resumes from background ────
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && restTimerEndTime) {
+    const remaining = getRestRemaining();
+    if (remaining <= 0) {
+      clearInterval(restTimerInterval);
+      restTimerInterval = null;
+      restTimerEndTime = null;
+      releaseWakeLock();
+      Haptics.success();
+      playRestEndSound();
+      showToast('\u2705 Rest complete \u2014 next set!');
+      updateRestTimerDisplay();
+      setTimeout(() => {
+        document.getElementById('rest-timer-bar').classList.remove('visible');
+      }, 2000);
+    } else {
+      updateRestTimerDisplay();
+    }
+  }
+});
 
 // ── Notifications ─────────────────────────────────────────────────────────
 async function requestNotificationPermission() {
@@ -4921,17 +5000,15 @@ async function requestNotificationPermission() {
 
 function fireRestCompleteNotification(seconds) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  // Schedule notification to fire when timer ends
-  // We use setTimeout since ServiceWorker push isn't available without a server
   setTimeout(() => {
     try {
-      new Notification('Grind.exe — Rest Complete ✅', {
-        body: 'Time for your next set. Let\'s go! 💪',
+      new Notification('Grind.exe \u2014 Rest Complete \u2705', {
+        body: "Time for your next set. Let\'s go! \ud83d\udcaa",
         icon: './icons/icon-192.png',
         badge: './icons/icon-72.png',
-        tag: 'rest-complete',       // replaces any previous notification
+        tag: 'rest-complete',
         renotify: true,
-        silent: false,              // uses system notification sound
+        silent: false,
       });
     } catch(e) {}
   }, seconds * 1000);
@@ -4940,28 +5017,23 @@ function fireRestCompleteNotification(seconds) {
 function startRestTimer(seconds) {
   if (restTimerInterval) clearInterval(restTimerInterval);
   restTimerTotal = seconds || DEFAULT_REST;
-  restTimerRemaining = restTimerTotal;
+  restTimerEndTime = Date.now() + restTimerTotal * 1000;
   state.lastRestDuration = restTimerTotal;
   saveState();
 
-  // Keep screen on during rest + request notification permission
   acquireWakeLock();
   requestNotificationPermission();
-  // Schedule lock screen notification as fallback if screen does lock
   fireRestCompleteNotification(restTimerTotal);
 
-  // Show bar and trigger icon pulse by re-inserting the class
   const bar = document.getElementById('rest-timer-bar');
   const icon = document.getElementById('rest-timer-icon');
   bar.classList.add('visible');
   if (icon) {
     icon.style.animation = 'none';
-    // Force reflow so the animation restarts
     void icon.offsetWidth;
     icon.style.animation = '';
   }
 
-  // Audio start cue — resume AudioContext if suspended (browser autoplay policy)
   const ctx = getAudioCtx();
   if (ctx && ctx.state === 'suspended') {
     ctx.resume().then(() => playRestStartSound());
@@ -4972,25 +5044,23 @@ function startRestTimer(seconds) {
   updateRestTimerDisplay();
 
   restTimerInterval = setInterval(() => {
-    restTimerRemaining--;
+    const remaining = getRestRemaining();
     updateRestTimerDisplay();
 
-    // Urgent tick in last 5 seconds
-    if (restTimerRemaining > 0 && restTimerRemaining <= 5) {
+    if (remaining > 0 && remaining <= 5) {
       playUrgentTick();
       Haptics.warning();
     }
 
-    if (restTimerRemaining <= 0) {
+    if (remaining <= 0) {
       clearInterval(restTimerInterval);
       restTimerInterval = null;
+      restTimerEndTime = null;
       releaseWakeLock();
       Haptics.success();
       playRestEndSound();
-      showToast('✅ Rest complete — next set!');
-      setTimeout(() => {
-        bar.classList.remove('visible');
-      }, 2000);
+      showToast('\u2705 Rest complete \u2014 next set!');
+      setTimeout(() => { bar.classList.remove('visible'); }, 2000);
     }
   }, 1000);
 }
@@ -5002,20 +5072,21 @@ function setRestTimer(seconds) {
 function skipRestTimer() {
   if (restTimerInterval) clearInterval(restTimerInterval);
   restTimerInterval = null;
+  restTimerEndTime = null;
   releaseWakeLock();
   document.getElementById('rest-timer-bar').classList.remove('visible');
 }
 
 function updateRestTimerDisplay() {
-  const mins = Math.floor(restTimerRemaining / 60);
-  const secs = restTimerRemaining % 60;
+  const remaining = restTimerEndTime ? getRestRemaining() : 0;
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
   const label = `${mins}:${String(secs).padStart(2,'0')}`;
-  const pct = Math.max(0, (restTimerRemaining / restTimerTotal) * 100);
-  const urgent = restTimerRemaining <= 10;
+  const pct = Math.max(0, (remaining / restTimerTotal) * 100);
+  const urgent = remaining <= 10;
 
   const countdown = document.getElementById('rest-countdown');
   const fill = document.getElementById('rest-fill');
-
   if (countdown) {
     countdown.textContent = label;
     countdown.className = 'rest-timer-countdown' + (urgent ? ' urgent' : '');
@@ -5419,6 +5490,81 @@ function switchPlatform(platform, el) {
 //  Each entry maps equipment type → { name, weight, cue }
 //  'default' is always the base entry from EXERCISES
 // ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+//  EXERCISE SWAPS — today-only alternatives per exercise
+//  Each entry: array of { id, reason } — curated by movement pattern & muscle
+//  Plyometric swaps always go lower-impact, never higher
+// ═══════════════════════════════════════════════════════════════════════════
+const EXERCISE_SWAPS = {
+  // ── Chest ────────────────────────────────────────────────────────────────
+  bench_press:      [{ id:'incline_dumbbell', reason:'Dumbbell variation' }, { id:'pushup', reason:'Bodyweight option' }, { id:'cable_fly', reason:'Cable isolation' }, { id:'dips', reason:'Bodyweight compound' }],
+  incline_dumbbell: [{ id:'bench_press', reason:'Flat barbell alternative' }, { id:'pushup', reason:'Bodyweight option' }, { id:'cable_fly', reason:'Cable upper chest' }],
+  cable_fly:        [{ id:'incline_dumbbell', reason:'Dumbbell press' }, { id:'pushup', reason:'Bodyweight option' }, { id:'bench_press', reason:'Compound alternative' }],
+  dips:             [{ id:'tricep_pushdown', reason:'Isolation alternative' }, { id:'pushup', reason:'Bodyweight option' }, { id:'bench_press', reason:'Compound press' }],
+  pushup:           [{ id:'bench_press', reason:'Barbell version' }, { id:'incline_dumbbell', reason:'Dumbbell press' }, { id:'pike_pushup', reason:'Harder bodyweight' }],
+  pike_pushup:      [{ id:'pushup', reason:'Easier bodyweight' }, { id:'ohp', reason:'Loaded overhead press' }, { id:'lateral_raise', reason:'Shoulder isolation' }],
+
+  // ── Back ─────────────────────────────────────────────────────────────────
+  deadlift:         [{ id:'romanian_deadlift', reason:'Lower back friendly' }, { id:'hip_thrust', reason:'Hip hinge alternative' }, { id:'cable_row', reason:'Seated pulling' }],
+  pullup:           [{ id:'lat_pulldown', reason:'Machine alternative' }, { id:'cable_row', reason:'Seated row' }, { id:'inverted_row', reason:'Bodyweight row' }],
+  lat_pulldown:     [{ id:'pullup', reason:'Bodyweight version' }, { id:'cable_row', reason:'Row alternative' }, { id:'inverted_row', reason:'Bodyweight option' }],
+  cable_row:        [{ id:'row', reason:'Dumbbell row' }, { id:'lat_pulldown', reason:'Pulldown alternative' }, { id:'face_pull', reason:'Rear delt focus' }],
+  row:              [{ id:'cable_row', reason:'Cable alternative' }, { id:'lat_pulldown', reason:'Pulldown option' }, { id:'inverted_row', reason:'Bodyweight row' }],
+  face_pull:        [{ id:'rear_delt_fly', reason:'Similar rear delt work' }, { id:'cable_row', reason:'Cable pulling' }, { id:'lat_pulldown', reason:'Lat focus' }],
+  inverted_row:     [{ id:'row', reason:'Dumbbell row' }, { id:'lat_pulldown', reason:'Machine option' }, { id:'cable_row', reason:'Cable row' }],
+  hip_hinge:        [{ id:'romanian_deadlift', reason:'Loaded hinge' }, { id:'glute_bridge', reason:'Bodyweight hinge' }, { id:'single_leg_rdl_bw', reason:'Unilateral option' }],
+
+  // ── Shoulders ────────────────────────────────────────────────────────────
+  ohp:              [{ id:'dumbbell', reason:'Dumbbell press' }, { id:'lateral_raise', reason:'Isolation option' }, { id:'pike_pushup', reason:'Bodyweight overhead' }],
+  lateral_raise:    [{ id:'face_pull', reason:'Cable alternative' }, { id:'rear_delt_fly', reason:'Rear delt focus' }, { id:'ohp', reason:'Compound press' }],
+  rear_delt_fly:    [{ id:'face_pull', reason:'Cable version' }, { id:'cable_row', reason:'Row alternative' }, { id:'lateral_raise', reason:'Side delt focus' }],
+  shrug:            [{ id:'face_pull', reason:'Upper trap alternative' }, { id:'upright_row', reason:'Similar pattern' }],
+
+  // ── Arms ─────────────────────────────────────────────────────────────────
+  bicep_curl:       [{ id:'hammer_curl', reason:'Neutral grip option' }, { id:'cable_row', reason:'Compound pulling' }, { id:'pullup', reason:'Compound bicep' }],
+  hammer_curl:      [{ id:'bicep_curl', reason:'Supinated grip' }, { id:'cable_row', reason:'Compound option' }],
+  tricep_pushdown:  [{ id:'skull_crusher', reason:'Free weight option' }, { id:'dips', reason:'Bodyweight compound' }, { id:'tricep_dip_chair', reason:'Chair dip option' }],
+  skull_crusher:    [{ id:'tricep_pushdown', reason:'Cable version' }, { id:'dips', reason:'Bodyweight compound' }, { id:'tricep_dip_chair', reason:'Bodyweight option' }],
+  tricep_dip_chair: [{ id:'tricep_pushdown', reason:'Cable isolation' }, { id:'dips', reason:'Weighted dips' }],
+
+  // ── Legs ─────────────────────────────────────────────────────────────────
+  squat:            [{ id:'goblet_squat', reason:'Easier technique' }, { id:'leg_press', reason:'Machine option' }, { id:'split_squat', reason:'Unilateral version' }, { id:'squat_bw', reason:'Bodyweight' }],
+  goblet_squat:     [{ id:'squat', reason:'Barbell version' }, { id:'leg_press', reason:'Machine option' }, { id:'squat_bw', reason:'Bodyweight' }],
+  romanian_deadlift:[{ id:'leg_curl', reason:'Machine hamstring' }, { id:'glute_bridge', reason:'Bodyweight hip hinge' }, { id:'single_leg_rdl', reason:'Unilateral version' }],
+  leg_press:        [{ id:'squat', reason:'Barbell squat' }, { id:'goblet_squat', reason:'Dumbbell squat' }, { id:'split_squat', reason:'Unilateral option' }],
+  leg_curl:         [{ id:'romanian_deadlift', reason:'Hinge alternative' }, { id:'nordic_curl', reason:'Harder hamstring' }, { id:'glute_bridge', reason:'Posterior chain' }],
+  calf_raise:       [{ id:'calf_raise_bw', reason:'Bodyweight version' }],
+  split_squat:      [{ id:'lunge', reason:'Moving lunge' }, { id:'goblet_squat', reason:'Bilateral squat' }, { id:'leg_press', reason:'Machine option' }],
+  lunge:            [{ id:'split_squat', reason:'Static version' }, { id:'goblet_squat', reason:'Squat alternative' }, { id:'lunge_bw', reason:'Bodyweight lunge' }],
+  single_leg_rdl:   [{ id:'romanian_deadlift', reason:'Bilateral version' }, { id:'glute_bridge', reason:'Bodyweight option' }, { id:'leg_curl', reason:'Machine hamstring' }],
+  hip_thrust:       [{ id:'glute_bridge', reason:'Easier version' }, { id:'romanian_deadlift', reason:'Hip hinge' }, { id:'lateral_hip_thrust', reason:'Unilateral version' }],
+  lateral_hip_thrust:[{ id:'hip_thrust', reason:'Bilateral version' }, { id:'glute_bridge', reason:'Bodyweight option' }, { id:'glute_med_raise', reason:'Abduction focus' }],
+  glute_med_raise:  [{ id:'lateral_hip_thrust', reason:'Loaded version' }, { id:'glute_bridge', reason:'Glute activation' }],
+  nordic_curl:      [{ id:'leg_curl', reason:'Machine version' }, { id:'romanian_deadlift', reason:'Hip hinge hamstring' }, { id:'glute_bridge', reason:'Posterior chain' }],
+
+  // ── Core ─────────────────────────────────────────────────────────────────
+  plank:            [{ id:'dead_bug', reason:'Anti-extension core' }, { id:'plank_rotation', reason:'Rotational core' }, { id:'ab_wheel', reason:'Harder variation' }],
+  dead_bug:         [{ id:'plank', reason:'Isometric core' }, { id:'plank_rotation', reason:'Rotation focus' }, { id:'pallof_press', reason:'Anti-rotation' }],
+  pallof_press:     [{ id:'dead_bug', reason:'Anti-extension option' }, { id:'plank', reason:'Isometric core' }, { id:'plank_rotation', reason:'Rotation focus' }],
+  ab_wheel:         [{ id:'plank', reason:'Easier isometric' }, { id:'dead_bug', reason:'Anti-extension' }],
+  plank_rotation:   [{ id:'dead_bug', reason:'Anti-extension core' }, { id:'pallof_press', reason:'Anti-rotation' }, { id:'plank', reason:'Isometric hold' }],
+
+  // ── Drive Phase / Plyometric — always swap DOWN in intensity ─────────────
+  depth_jump:       [{ id:'box_jump', reason:'Lower impact landing' }, { id:'broad_jump', reason:'Horizontal power' }, { id:'jump_squat', reason:'Lowest impact option' }],
+  lateral_hurdle_hop:[{ id:'lateral_bound', reason:'Single-leg lateral' }, { id:'jump_squat', reason:'Vertical option' }, { id:'box_jump', reason:'Vertical jump' }],
+  broad_jump:       [{ id:'jump_squat', reason:'Vertical option' }, { id:'box_jump', reason:'Box target' }, { id:'lunge', reason:'No-jump option' }],
+  box_jump:         [{ id:'jump_squat', reason:'No box needed' }, { id:'broad_jump', reason:'Horizontal power' }, { id:'squat_bw', reason:'No-jump option' }],
+  jump_squat:       [{ id:'goblet_squat', reason:'No-jump version' }, { id:'squat_bw', reason:'Bodyweight squat' }, { id:'lunge_bw', reason:'Unilateral option' }],
+  lateral_bound:    [{ id:'lateral_hurdle_hop', reason:'Two-foot option' }, { id:'skater_squat', reason:'Unilateral strength' }, { id:'lunge_bw', reason:'No-jump option' }],
+  skater_squat:     [{ id:'split_squat', reason:'Easier single-leg' }, { id:'lunge', reason:'Moving lunge' }, { id:'goblet_squat', reason:'Bilateral option' }],
+  skating_hold:     [{ id:'glute_bridge', reason:'Posterior chain' }, { id:'plank', reason:'Isometric hold' }, { id:'dead_bug', reason:'Core stability' }],
+
+  // ── Cardio ───────────────────────────────────────────────────────────────
+  burpee:           [{ id:'jump_squat', reason:'Lower intensity' }, { id:'mountain_climber', reason:'No jump option' }, { id:'high_knees', reason:'Cardio without impact' }],
+  mountain_climber: [{ id:'high_knees', reason:'Standing version' }, { id:'plank', reason:'Static core' }, { id:'burpee', reason:'Full body option' }],
+  high_knees:       [{ id:'mountain_climber', reason:'Floor version' }, { id:'jump_rope', reason:'Cardio alternative' }, { id:'treadmill_run', reason:'Running option' }],
+};
+
 const EXERCISE_VARIANTS = {
   bench_press: {
     barbell:  { label: 'Barbell', name: 'Barbell Bench Press', weight: 135, cue: 'Warm-up sets recommended: 2–3 ramp sets before working weight (e.g. bar×10, 60%×5, 80%×3). Grip the bar slightly wider than shoulder-width with a full grip. Arch your upper back and keep your feet flat. Lower the bar to mid-chest under control, then press in a slight arc toward your forehead.' },
@@ -5949,6 +6095,102 @@ function importBackup(file) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  EXERCISE SWAP — today-only substitution
+// ═══════════════════════════════════════════════════════════════════════════
+let swapTargetExId = null; // which exercise we're swapping
+
+function openSwapModal(exId) {
+  swapTargetExId = exId;
+  const dateKey = today();
+  const currentId = (state.todaySwaps[dateKey] && state.todaySwaps[dateKey][exId]) || exId;
+  const currentEx = EXERCISES[currentId];
+  const swaps = EXERCISE_SWAPS[exId];
+
+  document.getElementById('swap-modal-title').textContent =
+    `↔ Swap: ${currentEx ? currentEx.name : exId}`;
+
+  const body = document.getElementById('swap-modal-body');
+
+  if (!swaps || swaps.length === 0) {
+    body.innerHTML = `<p style="font-size:13px;color:var(--muted);line-height:1.6;">
+      No curated swaps available for this exercise. Use the equipment chips above the exercise card to switch variations, or build a custom day from the Plans tab.</p>`;
+    document.getElementById('swap-modal').classList.add('open');
+    return;
+  }
+
+  // Check if already swapped
+  const isSwapped = state.todaySwaps[dateKey] && state.todaySwaps[dateKey][exId] && state.todaySwaps[dateKey][exId] !== exId;
+
+  let html = `<p style="font-size:12px;color:rgba(229,231,235,0.55);line-height:1.5;margin-bottom:4px;">
+    Swap applies to today only — your plan is unchanged.</p>`;
+
+  if (isSwapped) {
+    html += `<div class="swap-section-label">Currently swapped to</div>
+    <div class="swap-option" onclick="resetSwap('${exId}')">
+      <div class="swap-option-icon ${currentEx?.muscleClass || ''}">${currentEx?.icon || '↩'}</div>
+      <div class="swap-option-info">
+        <div class="swap-option-name">${currentEx?.name || currentId}</div>
+        <div class="swap-option-meta">Tap to restore original</div>
+      </div>
+      <div style="font-size:18px;color:var(--muted);">↩</div>
+    </div>
+    <div class="swap-section-label">Other options</div>`;
+  } else {
+    html += `<div class="swap-section-label">Choose a substitute</div>`;
+  }
+
+  swaps.forEach(({ id, reason }) => {
+    if (id === currentId) return; // skip current
+    const ex = EXERCISES[id];
+    if (!ex) return;
+    html += `<div class="swap-option" onclick="confirmSwap('${exId}','${id}')">
+      <div class="swap-option-icon ${ex.muscleClass}">${ex.icon}</div>
+      <div class="swap-option-info">
+        <div class="swap-option-name">${ex.name}</div>
+        <div class="swap-option-meta">${reason} · ${ex.muscle}</div>
+      </div>
+      <div style="font-size:16px;color:var(--accent2);">↔</div>
+    </div>`;
+  });
+
+  body.innerHTML = html;
+  document.getElementById('swap-modal').classList.add('open');
+}
+
+function closeSwapModal() {
+  document.getElementById('swap-modal').classList.remove('open');
+  swapTargetExId = null;
+}
+
+function confirmSwap(originalId, swapId) {
+  const dateKey = today();
+  if (!state.todaySwaps[dateKey]) state.todaySwaps[dateKey] = {};
+  state.todaySwaps[dateKey][originalId] = swapId;
+  saveState();
+  closeSwapModal();
+  renderToday();
+  const swapEx = EXERCISES[swapId];
+  showToast(`↔ Swapped to ${swapEx ? swapEx.name : swapId}`);
+}
+
+function resetSwap(originalId) {
+  const dateKey = today();
+  if (state.todaySwaps[dateKey]) {
+    delete state.todaySwaps[dateKey][originalId];
+    saveState();
+  }
+  closeSwapModal();
+  renderToday();
+  showToast('↩ Original exercise restored');
+}
+
+function getSwappedExId(originalId) {
+  const dateKey = today();
+  const swapped = state.todaySwaps[dateKey] && state.todaySwaps[dateKey][originalId];
+  return (swapped && swapped !== originalId) ? swapped : originalId;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  TRAVEL MODE
 // ═══════════════════════════════════════════════════════════════════════════
 function openTravelModal() {
@@ -6074,7 +6316,6 @@ loadState();
 // Restore last used rest timer duration
 if (state.lastRestDuration) {
   restTimerTotal = state.lastRestDuration;
-  restTimerRemaining = state.lastRestDuration;
 }
 // Travel mode — check auto-return date and update UI
 checkTravelModeAutoReturn();
@@ -6087,6 +6328,10 @@ document.getElementById('backup-modal').addEventListener('click', function(e) {
 // Bind travel modal click-outside
 document.getElementById('travel-modal').addEventListener('click', function(e) {
   if (e.target === this) closeTravelModal();
+});
+// Bind swap modal click-outside
+document.getElementById('swap-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeSwapModal();
 });
 </script>
 </body>

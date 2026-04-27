@@ -3034,7 +3034,7 @@ const TOAST_DURATION_MS          = 2200;   // how long toasts stay visible
 const RPE_PROGRESSION_THRESHOLD  = 9;      // RPE at/above triggers back-off signal
 const DELOAD_TRIGGER_WEEKS       = 6;      // consecutive weeks before deload nudge
 const MAX_HISTORY_DISPLAY        = 10;     // max history sessions shown in list
-const STATE_KEY                  = STATE_KEY; // localStorage key
+const STATE_KEY                  = 'forge_state'; // localStorage key
 const VOLATILE_STATE_KEY         = 'forge_volatile'; // localStorage key for frequent saves
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3721,7 +3721,6 @@ function renderToday() {
   checkDeloadNudge();
   checkTravelModeAutoReturn();
   updateTravelUI();
-}
 
   } catch(e) {
     console.error('GrindFlow: renderToday() failed:', e);
@@ -5135,7 +5134,7 @@ function playUrgentTick() {
 let restTimerInterval = null;
 let restTimerTotal = DEFAULT_REST_SECONDS;
 let restTimerEndTime = null;   // absolute timestamp (ms) when timer expires
-const DEFAULT_REST = 90;
+// DEFAULT_REST_SECONDS is the canonical constant (defined above)
 let wakeLockSentinel = null;
 
 // Derived remaining — always calculated from wall clock, never decremented

@@ -44,6 +44,17 @@
     /* Monospace — JetBrains Mono or system mono */
     --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Consolas', 'Courier New', monospace;
   }
+
+  /* ── Utility classes (extracted from repeated inline styles) ──────────── */
+  .u-mono-muted  { font-family:var(--font-mono);font-size:10px;color:var(--muted);letter-spacing:0.5px; }
+  .u-mono-accent { font-family:var(--font-mono);font-size:10px;color:var(--accent);letter-spacing:1px;text-transform:uppercase; }
+  .u-flex-8      { display:flex;align-items:center;gap:8px; }
+  .u-flex-10     { display:flex;gap:10px;align-items:flex-start; }
+  .u-label       { font-size:13px;font-weight:600;color:var(--text);margin-bottom:1px; }
+  .u-sublabel    { font-size:11px;color:var(--muted); }
+  .u-divider     { flex:1;height:1px;background:var(--border); }
+  .u-section-lbl { font-family:var(--font-mono);font-size:9px;color:var(--accent);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px; }
+
 </style>
 <style>
   /* ─── RESET & TOKENS ───────────────────────────────────────────────── */
@@ -2463,6 +2474,10 @@ android {
 // ═══════════════════════════════════════════════════════════════════════════
 //  DATA: WORKOUT PLANS
 // ═══════════════════════════════════════════════════════════════════════════
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║  STATIC DATA — plans, exercises, swaps, warmups                           ║
+// ║  This section is content, not logic. Edit here to update plans/exercises  ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
 const PLANS = [
   {
     id: 'beginner_fullbody', watchType: 'Traditional Strength Training', watchTypeAlt: 'Functional Strength Training (Wed — Full Body B)',
@@ -3009,6 +3024,19 @@ const EXERCISES = {
   },
 };
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  CONSTANTS — single source of truth for all magic numbers
+// ═══════════════════════════════════════════════════════════════════════════
+const DEFAULT_REST_SECONDS       = 90;     // default rest timer duration
+const MAX_PUSH_OFFSET            = 6;      // max days plan can be pushed forward
+const TOAST_DURATION_MS          = 2200;   // how long toasts stay visible
+const RPE_PROGRESSION_THRESHOLD  = 9;      // RPE at/above triggers back-off signal
+const DELOAD_TRIGGER_WEEKS       = 6;      // consecutive weeks before deload nudge
+const MAX_HISTORY_DISPLAY        = 10;     // max history sessions shown in list
+const STATE_KEY                  = STATE_KEY; // localStorage key
+const VOLATILE_STATE_KEY         = 'forge_volatile'; // localStorage key for frequent saves
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3036,8 +3064,13 @@ let state = {
 
 function loadState() {
   try {
-    const s = localStorage.getItem('forge_state');
+    const s = localStorage.getItem(STATE_KEY);
     if (s) state = { ...state, ...JSON.parse(s) };
+    // Merge volatile state (todayLog, activeWarmup, todaySwaps) from separate key
+    try {
+      const v = localStorage.getItem(VOLATILE_STATE_KEY);
+      if (v) { const vol = JSON.parse(v); state = { ...state, ...vol }; }
+    } catch(ve) { /* volatile key missing or corrupt — use defaults */ }
     // Migrate legacy activePlan → primaryPlan
     if (state.activePlan && !state.primaryPlan) {
       state.primaryPlan = state.activePlan;
@@ -3048,9 +3081,14 @@ function loadState() {
 
 function saveState() {
   try {
-    localStorage.setItem('forge_state', JSON.stringify(state));
+    // Split volatile (frequently updated) from persistent (rarely updated)
+    // Volatile: todayLog, activeWarmup — written on every set tick
+    // Persistent: history, plans, settings — written less often
+    const { todayLog, activeWarmup, todaySwaps, ...persistent } = state;
+    const volatile = { todayLog, activeWarmup, todaySwaps };
+    localStorage.setItem(STATE_KEY, JSON.stringify(persistent));
+    localStorage.setItem(VOLATILE_STATE_KEY, JSON.stringify(volatile));
   } catch(e) {
-    // Storage quota exceeded or unavailable — warn the user once per session
     if (!saveState._warned) {
       saveState._warned = true;
       showToast('⚠️ Storage full — export a backup to free space');
@@ -3151,7 +3189,7 @@ function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2200);
+  setTimeout(() => t.classList.remove('show'), TOAST_DURATION_MS);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3162,7 +3200,7 @@ const NUDGE_SNOOZE_DAYS  = 7;    // "Later" snoozes for this many days
 const DELOAD_WEEKS = 6;           // suggest deload after this many consecutive weeks
 
 function checkDeloadNudge() {
-  const nudge = document.getElementById('deload-nudge');
+  const nudge = DOM.deloadNudge;
   if (!nudge) return;
   if (!state.primaryPlan || !state.history || state.history.length === 0) {
     nudge.style.display = 'none'; return;
@@ -3192,7 +3230,7 @@ function checkDeloadNudge() {
 }
 
 function dismissDeload() {
-  const nudge = document.getElementById('deload-nudge');
+  const nudge = DOM.deloadNudge;
   if (nudge) nudge.style.display = 'none';
   // Snooze for 2 weeks
   state.deloadSnoozedUntil = new Date(Date.now() + 14 * 86400000).toISOString();
@@ -3200,7 +3238,7 @@ function dismissDeload() {
 }
 
 function checkBackupNudge() {
-  const nudge = document.getElementById('backup-nudge');
+  const nudge = DOM.backupNudge;
   const title = document.getElementById('nudge-title');
   const sub   = document.getElementById('nudge-sub');
   if (!nudge) return;
@@ -3241,7 +3279,7 @@ function checkBackupNudge() {
 }
 
 function dismissNudge() {
-  const nudge = document.getElementById('backup-nudge');
+  const nudge = DOM.backupNudge;
   if (nudge) nudge.style.display = 'none';
   // Snooze for NUDGE_SNOOZE_DAYS days
   const snoozeUntil = new Date(Date.now() + NUDGE_SNOOZE_DAYS * 86400000).toISOString();
@@ -3260,6 +3298,16 @@ function navTo(pageId, btn) {
   if (pageId === 'today') renderToday();
   if (pageId === 'plans') renderPlans();
   if (pageId === 'history') renderHistory();
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  commitState — save + re-render in one call (replaces scattered pairs)
+// ═══════════════════════════════════════════════════════════════════════════
+function commitState(toastMsg) {
+  saveState();
+  renderToday();
+  if (toastMsg) showToast(toastMsg);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3319,41 +3367,34 @@ function buildRestDayHTML(showResumeBtn) {
 function toggleRestOverride() {
   const dateKey = today();
   state.restDayOverride = dateKey;
-  saveState();
-  renderToday();
-  showToast('😴 Rest day — recover well');
+  commitState('😴 Rest day — recover well');
 }
 
 function cancelRestOverride() {
   state.restDayOverride = null;
-  state.planPushOffset = 0;  // clear push offset when resuming workout
-  saveState();
-  renderToday();
-  showToast('💪 Back to the workout');
+  state.planPushOffset = 0;
+  commitState('💪 Back to the workout');
 }
 
 function pushForwardRest() {
   // Increment offset — plan shifts forward one day
-  state.planPushOffset = Math.min((state.planPushOffset || 0) + 1, 6);
+  state.planPushOffset = Math.min((state.planPushOffset || 0) + 1, MAX_PUSH_OFFSET);
   // Take today as a rest day too
   const dateKey = today();
   state.restDayOverride = dateKey;
-  saveState();
-  renderToday();
-  showToast('📅 Workout pushed — tomorrow picks up where today left off');
+  commitState('📅 Workout pushed — tomorrow picks up where today left off');
 }
 
 function clearPushOffset() {
   state.planPushOffset = 0;
-  saveState();
-  renderToday();
-  showToast('📅 Plan reset to normal schedule');
+  commitState('📅 Plan reset to normal schedule');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  TODAY PAGE
 // ═══════════════════════════════════════════════════════════════════════════
 function renderToday() {
+  try {
   const dateKey = today();
   const d = new Date();
   const dow = d.getDay();
@@ -3363,20 +3404,20 @@ function renderToday() {
   if (customActive) {
     const exercises = state.customDayActive.exercises;
     const cardioMeta = state.customDayActive.cardioMeta;
-    document.getElementById('hero-day').textContent = `${DAYS[dow]} · ${MONTHS[d.getMonth()]} ${d.getDate()}`;
+    DOM.heroDay.textContent = `${DAYS[dow]} · ${MONTHS[d.getMonth()]} ${d.getDate()}`;
     if (cardioMeta) {
-      document.getElementById('hero-title').textContent = cardioMeta.name;
-      document.getElementById('hero-meta').innerHTML =
+      DOM.heroTitle.textContent = cardioMeta.name;
+      DOM.heroMeta.innerHTML =
         `<div class="hero-chip">${cardioMeta.icon} ${cardioMeta.type.charAt(0).toUpperCase()+cardioMeta.type.slice(1)}</div>` +
         `<div class="hero-chip">⏱ ${cardioMeta.duration} min</div>`;
     } else {
-      document.getElementById('hero-title').textContent = 'Custom Day';
-      document.getElementById('hero-meta').innerHTML =
+      DOM.heroTitle.textContent = 'Custom Day';
+      DOM.heroMeta.innerHTML =
         `<div class="hero-chip">🎨 Self-built</div>` +
         `<div class="hero-chip">🏋️ ${exercises.length} exercises</div>`;
     }
-    document.getElementById('no-plan-msg').style.display = 'none';
-    document.getElementById('progress-wrap').style.display = 'flex';
+    DOM.noPlanMsg.style.display = 'none';
+    DOM.progressWrap.style.display = 'flex';
 
     if (!state.todayLog[dateKey]) state.todayLog[dateKey] = {};
     const log = state.todayLog[dateKey];
@@ -3390,7 +3431,7 @@ function renderToday() {
     });
     saveState();
 
-    const list = document.getElementById('exercises-list');
+    const list = DOM.exerciseList;
     list.innerHTML = '';
     exercises.forEach(exId => {
       const ex = EXERCISES[exId];
@@ -3422,13 +3463,13 @@ function renderToday() {
   // ── Manual rest day override ───────────────────────────────────────────
   const isRestOverride = state.restDayOverride === dateKey;
   if (isRestOverride) {
-    document.getElementById('hero-day').textContent = `${DAYS[dow]} · ${MONTHS[d.getMonth()]} ${d.getDate()}`;
-    document.getElementById('hero-title').textContent = 'Rest Day';
-    document.getElementById('hero-meta').innerHTML = '<div class="hero-chip">😴 Recovery Mode</div>';
-    document.getElementById('no-plan-msg').style.display = 'none';
-    document.getElementById('progress-wrap').style.display = 'none';
-    document.getElementById('exercises-list').innerHTML = buildRestDayHTML(true);
-    document.getElementById('rest-override-btn-wrap').style.display = 'none';
+    DOM.heroDay.textContent = `${DAYS[dow]} · ${MONTHS[d.getMonth()]} ${d.getDate()}`;
+    DOM.heroTitle.textContent = 'Rest Day';
+    DOM.heroMeta.innerHTML = '<div class="hero-chip">😴 Recovery Mode</div>';
+    DOM.noPlanMsg.style.display = 'none';
+    DOM.progressWrap.style.display = 'none';
+    DOM.exerciseList.innerHTML = buildRestDayHTML(true);
+    DOM.restBtnWrap.style.display = 'none';
     updateRing(0, 0);
     checkBackupNudge();
     checkDeloadNudge();
@@ -3438,20 +3479,20 @@ function renderToday() {
   const workout = getTodayWorkout(state.primaryPlan);
   const plan = state.primaryPlan ? getPlan(state.primaryPlan) : null;
 
-  document.getElementById('hero-day').textContent = `${DAYS[dow]} · ${MONTHS[d.getMonth()]} ${d.getDate()}`;
+  DOM.heroDay.textContent = `${DAYS[dow]} · ${MONTHS[d.getMonth()]} ${d.getDate()}`;
 
   if (!plan || !workout) {
-    document.getElementById('hero-title').textContent = 'No Plan Active';
-    document.getElementById('hero-meta').innerHTML = '';
-    document.getElementById('no-plan-msg').style.display = 'block';
-    document.getElementById('progress-wrap').style.display = 'none';
-    document.getElementById('exercises-list').innerHTML = '';
+    DOM.heroTitle.textContent = 'No Plan Active';
+    DOM.heroMeta.innerHTML = '';
+    DOM.noPlanMsg.style.display = 'block';
+    DOM.progressWrap.style.display = 'none';
+    DOM.exerciseList.innerHTML = '';
     return;
   }
 
-  document.getElementById('no-plan-msg').style.display = 'none';
-  document.getElementById('progress-wrap').style.display = 'flex';
-  document.getElementById('hero-title').textContent = workout.name;
+  DOM.noPlanMsg.style.display = 'none';
+  DOM.progressWrap.style.display = 'flex';
+  DOM.heroTitle.textContent = workout.name;
   const suppPlan = state.supplementalPlan ? getPlan(state.supplementalPlan) : null;
   const suppWorkout = suppPlan ? getTodayWorkout(state.supplementalPlan) : null;
   const suppExercises = suppWorkout && suppWorkout.exercises && suppWorkout.exercises.length > 0 ? suppWorkout.exercises : [];
@@ -3501,11 +3542,11 @@ function renderToday() {
     </button>`;
   }
 
-  document.getElementById('hero-meta').innerHTML = metaChips;
+  DOM.heroMeta.innerHTML = metaChips;
 
   if (!workout.exercises.length) {
-    document.getElementById('exercises-list').innerHTML = buildRestDayHTML(false);
-    document.getElementById('rest-override-btn-wrap').style.display = 'none';
+    DOM.exerciseList.innerHTML = buildRestDayHTML(false);
+    DOM.restBtnWrap.style.display = 'none';
     updateRing(0, 0);
     return;
   }
@@ -3530,7 +3571,7 @@ function renderToday() {
   });
   saveState();
 
-  const list = document.getElementById('exercises-list');
+  const list = DOM.exerciseList;
   list.innerHTML = '';
 
   // ── Warm-up section (prepended when active) ────────────────────────────
@@ -3672,7 +3713,7 @@ function renderToday() {
   }
 
   // Show "Take a Rest Day" button when there are exercises to do
-  const restBtnWrap = document.getElementById('rest-override-btn-wrap');
+  const restBtnWrap = DOM.restBtnWrap;
   if (restBtnWrap) restBtnWrap.style.display = workout.exercises.length ? 'block' : 'none';
 
   updateProgressFromLog();
@@ -3680,6 +3721,13 @@ function renderToday() {
   checkDeloadNudge();
   checkTravelModeAutoReturn();
   updateTravelUI();
+}
+
+  } catch(e) {
+    console.error('GrindFlow: renderToday() failed:', e);
+    if (DOM.exerciseList) DOM.exerciseList.innerHTML =
+      '<div style="padding:32px 20px;text-align:center;color:var(--muted);font-size:13px;">⚠️ Could not load today\'s workout. Try refreshing.</div>';
+  }
 }
 
 function buildExCard(exId, ex, logEntry, volumeOverride, isSwapped) {
@@ -3968,17 +4016,14 @@ function clearDayConfirm() {
   if (confirm('Reset today\'s workout? This will clear logged sets for today.')) {
     const dateKey = today();
     delete state.todayLog[dateKey];
-    saveState();
-    renderToday();
-    showToast('🔄 Today reset');
+    commitState('🔄 Today reset');
   }
 }
 
 function clearCustomDay() {
   // End a custom day or cardio session and return to the regular plan view
   state.customDayActive = null;
-  saveState();
-  renderToday();
+  commitState('🗓 Returned to plan');
   showToast('Custom session ended');
 }
 
@@ -4675,6 +4720,10 @@ const WARMUP_ROUTINES = [
   }
 ];
 
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║  APPLICATION LOGIC — state, rendering, event handlers                     ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+
 let selectedWarmupId = 'general'; // default selection
 
 function renderWarmupRoutines() {
@@ -4757,8 +4806,7 @@ function launchWarmup() {
 
 function clearWarmup() {
   state.activeWarmup = null;
-  saveState();
-  renderToday();
+  commitState('🔥 Warm-up removed');
   showToast('Warm-up cleared');
 }
 
@@ -5085,7 +5133,7 @@ function playUrgentTick() {
 //  REST TIMER
 // ═══════════════════════════════════════════════════════════════════════════
 let restTimerInterval = null;
-let restTimerTotal = 90;
+let restTimerTotal = DEFAULT_REST_SECONDS;
 let restTimerEndTime = null;   // absolute timestamp (ms) when timer expires
 const DEFAULT_REST = 90;
 let wakeLockSentinel = null;
@@ -6207,7 +6255,7 @@ function exportBackup() {
   state.nudgeSnoozedUntil = null;
   saveState();
   // Hide nudge if visible
-  const nudge = document.getElementById('backup-nudge');
+  const nudge = DOM.backupNudge;
   if (nudge) nudge.style.display = 'none';
   // Update the label in the modal if it's open
   const lastEl = document.getElementById('bs-last-export');
@@ -6319,22 +6367,18 @@ function confirmSwap(originalId, swapId) {
   const dateKey = today();
   if (!state.todaySwaps[dateKey]) state.todaySwaps[dateKey] = {};
   state.todaySwaps[dateKey][originalId] = swapId;
-  saveState();
   closeSwapModal();
-  renderToday();
   const swapEx = EXERCISES[swapId];
-  showToast(`↔ Swapped to ${swapEx ? swapEx.name : swapId}`);
+  commitState(`↔ Swapped to ${swapEx ? swapEx.name : swapId}`);
 }
 
 function resetSwap(originalId) {
   const dateKey = today();
   if (state.todaySwaps[dateKey]) {
     delete state.todaySwaps[dateKey][originalId];
-    saveState();
   }
   closeSwapModal();
-  renderToday();
-  showToast('↩ Original exercise restored');
+  commitState('↩ Original exercise restored');
 }
 
 function getSwappedExId(originalId) {
@@ -6412,7 +6456,7 @@ document.addEventListener('click', function(e) {
 function openTravelModal() {
   const isActive = !!state.travelMode;
   document.getElementById('travel-inactive-view').style.display = isActive ? 'none' : 'block';
-  document.getElementById('travel-active-view').style.display  = isActive ? 'block' : 'none';
+  DOM.travelActiveView.style.display  = isActive ? 'block' : 'none';
   if (isActive) {
     // Show saved plan name
     const savedId = state.travelMode.savedPrimaryPlan;
@@ -6472,8 +6516,8 @@ function updateTravelUI() {
   const isActive = !!state.travelMode;
   const menuItem = document.getElementById('travel-menu-item');
   const menuIcon = document.getElementById('travel-menu-icon');
-  const banner = document.getElementById('travel-banner');
-  const sub = document.getElementById('travel-banner-sub');
+  const banner = DOM.travelBanner;
+  const sub = DOM.travelBannerSub;
 
   if (menuItem) menuItem.style.background = isActive ? 'rgba(16,185,129,0.1)' : '';
   if (menuIcon) menuIcon.textContent = isActive ? '✈️' : '🧳';
@@ -6530,6 +6574,34 @@ function confirmClearExerciseLog() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  DOM CACHE — permanent elements cached at startup, never re-queried
+// ═══════════════════════════════════════════════════════════════════════════
+let DOM = {};
+function initDOMCache() {
+  DOM = {
+    heroDay:          DOM.heroDay,
+    heroTitle:        DOM.heroTitle,
+    heroMeta:         DOM.heroMeta,
+    exerciseList:     DOM.exerciseList,
+    noPlanMsg:        DOM.noPlanMsg,
+    progressWrap:     DOM.progressWrap,
+    restBtnWrap:      DOM.restBtnWrap,
+    backupNudge:      DOM.backupNudge,
+    deloadNudge:      DOM.deloadNudge,
+    travelBanner:     DOM.travelBanner,
+    travelBannerSub:  DOM.travelBannerSub,
+    travelActiveView: DOM.travelActiveView,
+    rpeModal:         document.getElementById('rpe-modal'),
+    swapModal:        document.getElementById('swap-modal'),
+    iosModal:         document.getElementById('ios-modal'),
+    travelModal:      document.getElementById('travel-modal'),
+    backupModal:      document.getElementById('backup-modal'),
+    pickerOverlay:    document.getElementById('picker-modal-overlay'),
+  };
+}
+
 // Register Service Worker (enables offline use + PWA install)
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js')
@@ -6537,6 +6609,7 @@ if ('serviceWorker' in navigator) {
     .catch(err => console.warn('SW registration failed:', err));
 }
 
+initDOMCache();
 loadState();
 // Restore last used rest timer duration
 if (state.lastRestDuration) {

@@ -487,6 +487,7 @@ function render(){
 
   // Table
   buildTable();buildNotes();
+  onDataLoaded();
 }
 
 function updProg(){
@@ -824,22 +825,18 @@ function renderTrainerReview(r) {
     </div>`;
 }
 
-// Enable the button once data is loaded
-const _origRender = render;
-render = function() {
-  _origRender();
+// Clean callback pattern — no monkey-patching
+// onDataLoaded() is called by render() at the end via the hook below
+function onDataLoaded() {
   const btn = document.getElementById('trainer-btn');
   const btnTxt = document.getElementById('trainer-btn-txt');
-  if (btn) {
-    btn.disabled = false;
-    btnTxt.textContent = 'Generate Review';
-  }
-  // Reset trainer body if new data loaded
+  if (btn) { btn.disabled = false; }
+  if (btnTxt) { btnTxt.textContent = 'Generate Review'; }
   const body = document.getElementById('trainer-body');
   if (body && body.querySelector('.trainer-response')) {
     body.innerHTML = '<div class="trainer-empty">New data loaded — click Generate Review for updated analysis</div>';
   }
-};
+}
 
 window.generateTrainerReview = generateTrainerReview;
 
